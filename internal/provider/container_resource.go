@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -16,7 +17,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/jmnote/terraform-provider-wslc/internal/wslc"
@@ -58,34 +61,34 @@ type containerPortModel struct {
 // command, environment, labels, or published ports, so changing any of
 // them replaces the resource.
 type containerResourceModel struct {
-	ID          types.String         `tfsdk:"id"`
-	Image       types.String         `tfsdk:"image"`
-	Command     []types.String       `tfsdk:"command"`
-	CPUs        types.String         `tfsdk:"cpus"`
-	DNS         []types.String       `tfsdk:"dns"`
-	DNSOptions  []types.String       `tfsdk:"dns_options"`
-	DNSSearch   []types.String       `tfsdk:"dns_search"`
-	Domainname  types.String         `tfsdk:"domainname"`
-	Entrypoint  types.String         `tfsdk:"entrypoint"`
-	Env         map[string]string    `tfsdk:"env"`
-	Hostname    types.String         `tfsdk:"hostname"`
-	IP          types.String         `tfsdk:"ip"`
-	Labels      map[string]string    `tfsdk:"labels"`
-	Memory      types.String         `tfsdk:"memory"`
-	Name        types.String         `tfsdk:"name"`
-	Network     types.String         `tfsdk:"network"`
-	Ports       []containerPortModel `tfsdk:"ports"`
-	PublishAll  types.Bool           `tfsdk:"publish_all"`
-	Pull        types.String         `tfsdk:"pull"`
-	Remove      types.Bool           `tfsdk:"rm"`
-	ShmSize     types.String         `tfsdk:"shm_size"`
-	StopSignal  types.String         `tfsdk:"stop_signal"`
-	StopTimeout types.Int64          `tfsdk:"stop_timeout"`
-	Tmpfs       []types.String       `tfsdk:"tmpfs"`
-	Ulimits     []types.String       `tfsdk:"ulimit"`
-	User        types.String         `tfsdk:"user"`
-	WorkDir     types.String         `tfsdk:"workdir"`
-	State       types.String         `tfsdk:"state"`
+	ID          types.String `tfsdk:"id"`
+	Image       types.String `tfsdk:"image"`
+	Command     types.List   `tfsdk:"command"`
+	CPUs        types.String `tfsdk:"cpus"`
+	DNS         types.List   `tfsdk:"dns"`
+	DNSOptions  types.List   `tfsdk:"dns_options"`
+	DNSSearch   types.List   `tfsdk:"dns_search"`
+	Domainname  types.String `tfsdk:"domainname"`
+	Entrypoint  types.String `tfsdk:"entrypoint"`
+	Env         types.Map    `tfsdk:"env"`
+	Hostname    types.String `tfsdk:"hostname"`
+	IP          types.String `tfsdk:"ip"`
+	Labels      types.Map    `tfsdk:"labels"`
+	Memory      types.String `tfsdk:"memory"`
+	Name        types.String `tfsdk:"name"`
+	Network     types.String `tfsdk:"network"`
+	Ports       types.List   `tfsdk:"ports"`
+	PublishAll  types.Bool   `tfsdk:"publish_all"`
+	Pull        types.String `tfsdk:"pull"`
+	Remove      types.Bool   `tfsdk:"rm"`
+	ShmSize     types.String `tfsdk:"shm_size"`
+	StopSignal  types.String `tfsdk:"stop_signal"`
+	StopTimeout types.Int64  `tfsdk:"stop_timeout"`
+	Tmpfs       types.List   `tfsdk:"tmpfs"`
+	Ulimits     types.List   `tfsdk:"ulimit"`
+	User        types.String `tfsdk:"user"`
+	WorkDir     types.String `tfsdk:"workdir"`
+	State       types.String `tfsdk:"state"`
 }
 
 func (r *containerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -173,6 +176,7 @@ func (r *containerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"env": schema.MapAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
+				Sensitive:   true,
 				Description: "Environment variables set in the container, passed as repeated `wslc create --env`.",
 				PlanModifiers: []planmodifier.Map{
 					mapplanmodifier.RequiresReplace(),
@@ -234,14 +238,18 @@ func (r *containerResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 							Description: "Host IP address to bind the published port to. Defaults to all interfaces.",
 						},
 						"host_port": schema.Int64Attribute{
+							Validators:  []validator.Int64{portValidator{minimum: 0}},
 							Required:    true,
-							Description: "Port on the host to publish to.",
+							Description: "Port on the host to publish to (0-65535). Zero is passed through to the CLI for allocation behavior.",
 						},
 						"container_port": schema.Int64Attribute{
+							Validators:  []validator.Int64{portValidator{minimum: 1}},
 							Required:    true,
-							Description: "Port inside the container to publish.",
+							Description: "Port inside the container to publish (1-65535).",
 						},
 						"protocol": schema.StringAttribute{
+							Default:     stringdefault.StaticString("tcp"),
+							Validators:  []validator.String{protocolValidator{}},
 							Optional:    true,
 							Computed:    true,
 							Description: "Port protocol: \"tcp\" or \"udp\". Defaults to \"tcp\".",
@@ -350,16 +358,16 @@ func (r *containerResource) Configure(_ context.Context, req resource.ConfigureR
 // ValidateConfig catches an invalid `pull` value at `terraform plan`/`validate`
 // time rather than only surfacing it as an apply-time error from wslc.exe.
 func (r *containerResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config containerResourceModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	var pullValue types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("pull"), &pullValue)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if config.Pull.IsNull() || config.Pull.IsUnknown() {
+	if pullValue.IsNull() || pullValue.IsUnknown() {
 		return
 	}
-	if pull := config.Pull.ValueString(); pull != "" && !validPullPolicies[pull] {
+	if pull := pullValue.ValueString(); !validPullPolicies[pull] {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("pull"),
 			"Invalid pull policy",
@@ -375,15 +383,8 @@ func (r *containerResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	// "protocol" is Optional+Computed with no schema-level default, so an
-	// omitted entry arrives here Unknown; resolve it to "tcp" now, both
-	// for the --publish value built below and because Terraform requires
-	// every attribute to be known before this model is saved to state.
-	for i := range plan.Ports {
-		if plan.Ports[i].Protocol.IsNull() || plan.Ports[i].Protocol.IsUnknown() || plan.Ports[i].Protocol.ValueString() == "" {
-			plan.Ports[i].Protocol = types.StringValue("tcp")
-		}
-	}
+	var ports []containerPortModel
+	resp.Diagnostics.Append(plan.Ports.ElementsAs(ctx, &ports, false)...)
 
 	// Fields are listed alphabetically by their `wslc create` flag name,
 	// matching the schema attribute order above.
@@ -394,11 +395,10 @@ func (r *containerResource) Create(ctx context.Context, req resource.CreateReque
 		Hostname:   plan.Hostname.ValueString(),
 		Image:      plan.Image.ValueString(),
 		IP:         plan.IP.ValueString(),
-		Labels:     plan.Labels,
 		Memory:     plan.Memory.ValueString(),
 		Name:       plan.Name.ValueString(),
 		Network:    plan.Network.ValueString(),
-		Publish:    buildPublishArgs(plan.Ports),
+		Publish:    buildPublishArgs(ports),
 		PublishAll: plan.PublishAll.ValueBool(),
 		PullPolicy: plan.Pull.ValueString(),
 		Remove:     plan.Remove.ValueBool(),
@@ -411,26 +411,25 @@ func (r *containerResource) Create(ctx context.Context, req resource.CreateReque
 		timeout := int(plan.StopTimeout.ValueInt64())
 		opts.StopTimeout = &timeout
 	}
-	for _, c := range plan.Command {
-		opts.Command = append(opts.Command, c.ValueString())
+	resp.Diagnostics.Append(plan.Command.ElementsAs(ctx, &opts.Command, false)...)
+	resp.Diagnostics.Append(plan.DNS.ElementsAs(ctx, &opts.DNS, false)...)
+	resp.Diagnostics.Append(plan.DNSOptions.ElementsAs(ctx, &opts.DNSOptions, false)...)
+	resp.Diagnostics.Append(plan.DNSSearch.ElementsAs(ctx, &opts.DNSSearch, false)...)
+	resp.Diagnostics.Append(plan.Tmpfs.ElementsAs(ctx, &opts.Tmpfs, false)...)
+	resp.Diagnostics.Append(plan.Ulimits.ElementsAs(ctx, &opts.Ulimits, false)...)
+	resp.Diagnostics.Append(plan.Labels.ElementsAs(ctx, &opts.Labels, false)...)
+	var env map[string]string
+	resp.Diagnostics.Append(plan.Env.ElementsAs(ctx, &env, false)...)
+	if resp.Diagnostics.HasError() {
+		return
 	}
-	for _, d := range plan.DNS {
-		opts.DNS = append(opts.DNS, d.ValueString())
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
 	}
-	for _, d := range plan.DNSOptions {
-		opts.DNSOptions = append(opts.DNSOptions, d.ValueString())
-	}
-	for _, d := range plan.DNSSearch {
-		opts.DNSSearch = append(opts.DNSSearch, d.ValueString())
-	}
-	for k, v := range plan.Env {
-		opts.Env = append(opts.Env, k+"="+v)
-	}
-	for _, t := range plan.Tmpfs {
-		opts.Tmpfs = append(opts.Tmpfs, t.ValueString())
-	}
-	for _, u := range plan.Ulimits {
-		opts.Ulimits = append(opts.Ulimits, u.ValueString())
+	sort.Strings(keys)
+	for _, k := range keys {
+		opts.Env = append(opts.Env, k+"="+env[k])
 	}
 
 	id, err := r.client.CreateContainer(ctx, opts)
@@ -480,9 +479,8 @@ func (r *containerResource) Read(ctx context.Context, req resource.ReadRequest, 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-// Update only runs when a change to a Computed-only attribute is proposed,
-// since every configurable attribute in the schema forces replacement; it
-// simply re-reads the container's current state.
+// Update satisfies the resource interface and refreshes observed status.
+// Configurable changes normally replace the resource. Planned inputs are preserved.
 func (r *containerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan containerResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -514,12 +512,13 @@ func (r *containerResource) ImportState(ctx context.Context, req resource.Import
 // model's computed attributes (state) with the observed values.
 func (r *containerResource) refresh(ctx context.Context, model *containerResourceModel) diag.Diagnostics {
 	var diags diag.Diagnostics
+	model.State = types.StringNull()
 	inspect, err := r.client.InspectContainer(ctx, model.ID.ValueString())
 	if err != nil {
 		diags.AddError("Error reading wslc container after apply", err.Error())
 		return diags
 	}
-	applyInspect(model, inspect)
+	model.State = types.StringValue(inspect.State.Status)
 	return diags
 }
 
@@ -544,9 +543,6 @@ func buildPublishArgs(ports []containerPortModel) []string {
 	args := make([]string, 0, len(ports))
 	for _, p := range ports {
 		protocol := p.Protocol.ValueString()
-		if protocol == "" {
-			protocol = "tcp"
-		}
 		spec := strconv.FormatInt(p.HostPort.ValueInt64(), 10) + ":" + strconv.FormatInt(p.ContainerPort.ValueInt64(), 10) + "/" + protocol
 		if hostIP := p.HostIP.ValueString(); hostIP != "" {
 			spec = hostIP + ":" + spec

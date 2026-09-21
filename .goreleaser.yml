@@ -5,8 +5,8 @@
 # WSL container CLI), so no other OS/arch combination is meaningful to
 # publish.
 #
-# Requires GPG_PRIVATE_KEY and (optionally) GPG_PASSPHRASE to be set as
-# GitHub Actions secrets to sign SHA256SUMS -- see RELEASING.md.
+# Manual releases use an imported local GPG key, GPG_FINGERPRINT and
+# optional GPG_PASSPHRASE to sign SHA256SUMS -- see RELEASING.md.
 version: 2
 
 before:

@@ -2,7 +2,8 @@
 
 Requires [Go](https://go.dev) 1.25+ and a Windows host with the WSL
 container feature available (WSL 2.9.3 or later, `wsl --update
---pre-release`) for anything beyond `go build`.
+--pre-release`) for live integration checks. Unit tests, build, and vet
+run without WSL on both Windows and Linux.
 
 ```powershell
 go build ./...
@@ -21,7 +22,11 @@ go generate ./...
 
 ## Testing against a local build
 
-There are no Go-level acceptance tests yet; the way to exercise a change is
+Unit tests cover schema validation, state handling, CLI arguments, parsing,
+credential-safe diagnostics and deletion races. The test workflow runs build,
+vet, formatting and unit tests on Windows and Linux.
+
+There are no live Go-level acceptance tests yet; the way to exercise a change is
 to drive a locally built provider with real `terraform plan`/`apply`
 commands, using Terraform's own
 [development overrides](https://developer.hashicorp.com/terraform/cli/config/config-file#development-overrides-for-provider-developers)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 )
 
@@ -22,9 +23,6 @@ type Client interface {
 	// StartContainer starts an existing, stopped container via
 	// `wslc start`.
 	StartContainer(ctx context.Context, id string) error
-
-	// StopContainer stops a running container via `wslc stop`.
-	StopContainer(ctx context.Context, id string) error
 
 	// InspectContainer returns the current observed state of the
 	// container named or identified by id. It returns ErrNotFound
@@ -82,9 +80,15 @@ func (c *client) CreateContainer(ctx context.Context, opts CreateContainerOption
 	if opts.IP != "" {
 		args = append(args, "--ip", opts.IP)
 	}
-	for k, v := range opts.Labels {
-		args = append(args, "--label", k+"="+v)
+	keys := make([]string, 0, len(opts.Labels))
+	for k := range opts.Labels {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "--label", k+"="+opts.Labels[k])
+	}
+
 	if opts.Memory != "" {
 		args = append(args, "--memory", opts.Memory)
 	}
@@ -132,12 +136,18 @@ func (c *client) CreateContainer(ctx context.Context, opts CreateContainerOption
 
 	result, err := run(ctx, c.runner, args...)
 	if err != nil {
-		return "", fmt.Errorf("wslc: create container %q: %w %s", opts.Image, err, describeOutput(result))
+		if errors.Is(err, ErrExecutableNotFound) {
+			return "", fmt.Errorf("wslc: create container: %w", ErrExecutableNotFound)
+		}
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("wslc: create container: %w", ctx.Err())
+		}
+		return "", fmt.Errorf("wslc: create container failed (exit code %d); process details omitted because they may contain credentials", result.ExitCode)
 	}
 
 	id := string(bytes.TrimSpace(result.Stdout))
 	if id == "" {
-		return "", fmt.Errorf("wslc: create container %q: no container ID returned %s", opts.Image, describeOutput(result))
+		return "", fmt.Errorf("wslc: create container: no container ID returned; process output omitted because it may contain credentials")
 	}
 	return id, nil
 }
@@ -146,14 +156,6 @@ func (c *client) StartContainer(ctx context.Context, id string) error {
 	result, err := run(ctx, c.runner, "start", id)
 	if err != nil {
 		return fmt.Errorf("wslc: start container %q: %w %s", id, err, describeOutput(result))
-	}
-	return nil
-}
-
-func (c *client) StopContainer(ctx context.Context, id string) error {
-	result, err := run(ctx, c.runner, "stop", id)
-	if err != nil {
-		return fmt.Errorf("wslc: stop container %q: %w %s", id, err, describeOutput(result))
 	}
 	return nil
 }
@@ -181,13 +183,16 @@ func (c *client) InspectContainer(ctx context.Context, id string) (*ContainerIns
 }
 
 func (c *client) RemoveContainer(ctx context.Context, id string) error {
-	if _, err := c.InspectContainer(ctx, id); errors.Is(err, ErrNotFound) {
+	// Optimistically remove in one invocation. Only inspect after a failure,
+	// including a concurrent deletion, to distinguish absence from real errors.
+	result, err := run(ctx, c.runner, "remove", "--force", id)
+	if err == nil {
 		return nil
 	}
-
-	result, err := run(ctx, c.runner, "remove", "--force", id)
-	if err != nil {
-		return fmt.Errorf("wslc: remove container %q: %w %s", id, err, describeOutput(result))
+	if ctx.Err() == nil {
+		if _, inspectErr := c.InspectContainer(ctx, id); errors.Is(inspectErr, ErrNotFound) {
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("wslc: remove container %q: %w %s", id, err, describeOutput(result))
 }

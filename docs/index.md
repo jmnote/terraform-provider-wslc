@@ -66,13 +66,13 @@ provider "wslc" {}
   `state` forces replacement: wslc.exe has no equivalent of `docker
   update` for an existing container's image, command, environment,
   resource limits, or published ports.
-- **Import cannot recover every attribute.** `terraform import` populates
-  `id`, `name`, `image`, and `state` from `wslc inspect`, since those are
-  the only attributes this provider can reliably read back. Every other
-  configured attribute (`env`, `cpus`, `dns`, `ports`, etc.) is left
-  unset after import and must be re-supplied in configuration before the
-  next `terraform plan`, or that plan will propose replacing the
-  container. See the resource documentation's Import section.
+- **Limited refresh and import mapping.** Import sets `id` and reads
+  `name`, `image`, and `state` from `wslc inspect`. Other configurable
+  attributes (`env`, `cpus`, `dns`, `ports`, etc.) are not mapped by this
+  provider. Refresh preserves their saved values and cannot detect their
+  drift. Import leaves them unset; adding them to configuration after
+  import proposes replacement, even if they match the actual container.
+  See the resource documentation's Import section.
 
 ## Destructive operation warning
 

@@ -27,13 +27,22 @@ Import uses the container's full ID as the import identity:
 
 {{codefile "shell" .ImportFile}}
 
-`wslc inspect` reliably reports back `name`, `image`, and `state`, so
-import populates those. Every other configurable attribute (`env`,
-`cpus`, `dns`, `ports`, `labels`, etc.) cannot be read back from
-wslc.exe and is left unset by import -- write matching values into your
-configuration before the next `terraform plan`, or that plan will
-propose replacing the container (since those attributes all force
-replacement when they differ from state).
+This provider refreshes `name`, `image`, and `state` from `wslc inspect`
+and detects deleted containers. Other configurable attributes (`env`,
+`cpus`, `dns`, `ports`, `labels`, etc.) are not mapped back into state:
+refresh preserves their saved values, and import leaves them unset.
+This is a provider limitation, not a claim about every CLI version's
+inspect output. Drift in those attributes is not detected.
+
+After import, configuring any of those unset attributes proposes replacing
+the container, even when the value matches its actual settings. Use a
+configuration containing only `name` and `image` to avoid that replacement;
+review the plan before adding further settings.
+
+`env` is marked sensitive to hide its values in normal Terraform output.
+These values are still stored in Terraform state. Provider logs omit command
+arguments, and create errors omit subprocess output because it may echo
+credentials. A create failure reports the exit code instead.
 
 ### Example
 

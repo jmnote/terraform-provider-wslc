@@ -1,10 +1,3 @@
-// Package wslc isolates every interaction with wslc.exe (the WSL Container
-// CLI, see https://github.com/MicrosoftDocs/WSL/blob/main/WSL/wsl-container.md)
-// behind a small, Terraform-agnostic interface (Client). internal/provider
-// depends on this package; this package must never import anything from
-// terraform-plugin-framework, so that the Client methods and the output
-// parsing they rely on can be unit tested without Terraform, and without a
-// real Windows/WSL host, by substituting a fake Runner.
 package wslc
 
 import (
@@ -66,8 +59,9 @@ func (r *ProcessRunner) Run(ctx context.Context, args ...string) (Result, error)
 	err := cmd.Run()
 
 	result := Result{
-		Stdout: stdout.Bytes(),
-		Stderr: stderr.Bytes(),
+		Stdout:   stdout.Bytes(),
+		Stderr:   stderr.Bytes(),
+		ExitCode: -1,
 	}
 
 	if err == nil {
@@ -87,11 +81,11 @@ func (r *ProcessRunner) Run(ctx context.Context, args ...string) (Result, error)
 		// commands (e.g. inspecting an object that does not exist), so it
 		// is returned as an error the caller can inspect alongside the
 		// captured stdout/stderr rather than only a bare Go error value.
-		return result, fmt.Errorf("wslc: %s %v: exit code %d: %w", r.Executable, args, result.ExitCode, err)
+		return result, fmt.Errorf("wslc: process failed: exit code %d: %w", result.ExitCode, err)
 	}
 
 	// context.Canceled / context.DeadlineExceeded surface here.
-	return result, fmt.Errorf("wslc: %s %v: %w", r.Executable, args, err)
+	return result, fmt.Errorf("wslc: process failed: %w", err)
 }
 
 // describeOutput formats a command's captured output for an error message.
@@ -110,9 +104,11 @@ func describeOutput(result Result) string {
 	}
 }
 
-// run logs args at Debug before invoking runner, so every wslc.exe
-// invocation this package makes is logged the same way in one place.
+// run deliberately excludes argv from logs: environment, labels and command
+// arguments can contain credentials. Create diagnostics also omit process output.
 func run(ctx context.Context, runner Runner, args ...string) (Result, error) {
-	tflog.Debug(ctx, "wslc: running wslc.exe", map[string]interface{}{"args": args})
-	return runner.Run(ctx, args...)
+	tflog.Debug(ctx, "wslc: invoking process")
+	result, err := runner.Run(ctx, args...)
+	tflog.Debug(ctx, "wslc: process completed", map[string]interface{}{"exit_code": result.ExitCode})
+	return result, err
 }

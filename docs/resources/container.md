@@ -61,7 +61,7 @@ resource "wslc_container" "nginx" {
 - `dns_search` (List of String) DNS search domains, passed as repeated `wslc create --dns-search`.
 - `domainname` (String) The container's domain name, passed as `wslc create --domainname`.
 - `entrypoint` (String) Overrides the image's init process executable, passed as `wslc create --entrypoint`.
-- `env` (Map of String) Environment variables set in the container, passed as repeated `wslc create --env`.
+- `env` (Map of String, Sensitive) Environment variables set in the container, passed as repeated `wslc create --env`.
 - `hostname` (String) The container's host name, passed as `wslc create --hostname`.
 - `ip` (String) Static IPv4 address to assign the container on `network`, passed as `wslc create --ip`.
 - `labels` (Map of String) Metadata set on the container, passed as repeated `wslc create --label`.
@@ -89,8 +89,8 @@ resource "wslc_container" "nginx" {
 
 Required:
 
-- `container_port` (Number) Port inside the container to publish.
-- `host_port` (Number) Port on the host to publish to.
+- `container_port` (Number) Port inside the container to publish (1-65535).
+- `host_port` (Number) Port on the host to publish to (0-65535). Zero is passed through to the CLI for allocation behavior.
 
 Optional:
 
@@ -105,13 +105,22 @@ Import uses the container's full ID as the import identity:
 terraform import wslc_container.nginx <container-id>
 ```
 
-`wslc inspect` reliably reports back `name`, `image`, and `state`, so
-import populates those. Every other configurable attribute (`env`,
-`cpus`, `dns`, `ports`, `labels`, etc.) cannot be read back from
-wslc.exe and is left unset by import -- write matching values into your
-configuration before the next `terraform plan`, or that plan will
-propose replacing the container (since those attributes all force
-replacement when they differ from state).
+This provider refreshes `name`, `image`, and `state` from `wslc inspect`
+and detects deleted containers. Other configurable attributes (`env`,
+`cpus`, `dns`, `ports`, `labels`, etc.) are not mapped back into state:
+refresh preserves their saved values, and import leaves them unset.
+This is a provider limitation, not a claim about every CLI version's
+inspect output. Drift in those attributes is not detected.
+
+After import, configuring any of those unset attributes proposes replacing
+the container, even when the value matches its actual settings. Use a
+configuration containing only `name` and `image` to avoid that replacement;
+review the plan before adding further settings.
+
+`env` is marked sensitive to hide its values in normal Terraform output.
+These values are still stored in Terraform state. Provider logs omit command
+arguments, and create errors omit subprocess output because it may echo
+credentials. A create failure reports the exit code instead.
 
 ### Example
 
