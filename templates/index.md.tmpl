@@ -1,0 +1,73 @@
+---
+page_title: "wslc Provider"
+description: |-
+  This provider manages the lifecycle of WSL containers, via wslc.exe (the WSL Container CLI).
+---
+
+# wslc Provider
+
+This provider manages the lifecycle of WSL containers, via
+[`wslc.exe`](https://learn.microsoft.com/en-us/windows/wsl/wsl-container)
+(the WSL Container CLI).
+
+It manages a container's **lifecycle**: creating it (`wslc create` +
+`wslc start`), observing its run status, and destroying it (`wslc remove
+--force`). It does **not** manage anything inside a container -- what
+runs there is entirely up to the image and command you configure.
+
+## Requirements
+
+- Windows (`windows_amd64` or `windows_arm64`); this provider only runs as
+  part of Terraform executing natively on Windows.
+- The WSL container feature (`wslc.exe` on PATH), which requires WSL 2.9.3
+  or higher: `wsl --update --pre-release`.
+- Terraform (a recent 1.x release).
+
+## Execution model
+
+```text
+Windows
+
+terraform.exe
+    |
+    +-- terraform-provider-wslc.exe
+            |
+            +-- wslc.exe
+                    |
+                    +-- container 1
+                    +-- container 2
+```
+
+## Example Usage
+
+{{tffile "examples/provider/provider.tf"}}
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Resources
+
+- [`wslc_container`](resources/container.md): create, observe, and
+  destroy a WSL container.
+
+## Known limitations
+
+- **No in-place update.** Every configurable attribute besides `id` and
+  `state` forces replacement: wslc.exe has no equivalent of `docker
+  update` for an existing container's image, command, environment,
+  resource limits, or published ports.
+- **Limited refresh and import mapping.** Import sets `id` and reads
+  `name`, `image`, and `state` from `wslc inspect`. Other configurable
+  attributes (`env`, `cpus`, `dns`, `ports`, etc.) are not mapped by this
+  provider. Refresh preserves their saved values and cannot detect their
+  drift. Import leaves them unset; adding them to configuration after
+  import proposes replacement, even if they match the actual container.
+  See the resource documentation's Import section.
+
+## Destructive operation warning
+
+`terraform destroy`, or any change to an attribute that forces
+replacement (effectively everything except `id`/`state`), removes the
+container via `wslc remove --force`, which **permanently deletes it and
+any data inside it that was not stored in a mounted volume**. This
+provider does not take backups or add any other safety net beyond what
+`terraform plan` already shows you.

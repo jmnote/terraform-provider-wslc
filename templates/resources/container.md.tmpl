@@ -1,0 +1,59 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+~> **Destructive delete.** `terraform destroy`, or any change to an
+attribute that forces replacement (every configurable attribute except
+`id` and `state`), removes the container via `wslc remove --force`,
+which **permanently deletes it and any data inside it that isn't in a
+mounted volume**. There is no undo and this provider does not take
+backups.
+
+## Example Usage
+
+{{tffile "examples/resources/wslc_container/resource.tf"}}
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+Import uses the container's full ID as the import identity:
+
+{{codefile "shell" .ImportFile}}
+
+This provider refreshes `name`, `image`, and `state` from `wslc inspect`
+and detects deleted containers. Other configurable attributes (`env`,
+`cpus`, `dns`, `ports`, `labels`, etc.) are not mapped back into state:
+refresh preserves their saved values, and import leaves them unset.
+This is a provider limitation, not a claim about every CLI version's
+inspect output. Drift in those attributes is not detected.
+
+After import, configuring any of those unset attributes proposes replacing
+the container, even when the value matches its actual settings. Use a
+configuration containing only `name` and `image` to avoid that replacement;
+review the plan before adding further settings.
+
+`env` is marked sensitive to hide its values in normal Terraform output.
+These values are still stored in Terraform state. Provider logs omit command
+arguments, and create errors omit subprocess output because it may echo
+credentials. A create failure reports the exit code instead.
+
+### Example
+
+Assuming you created a container as follows
+
+{{codefile "shell" "examples/resources/wslc_container/import-create.sh" }}
+
+you provide the definition for the resource as follows
+
+{{tffile "examples/resources/wslc_container/import-resource.tf" }}
+
+then the import command is as follows
+
+{{codefile "shell" "examples/resources/wslc_container/import-resource.sh" }}
