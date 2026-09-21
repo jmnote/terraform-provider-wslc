@@ -1,0 +1,50 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+~> **Destructive delete.** `terraform destroy`, or any change to an
+attribute that forces replacement (every configurable attribute except
+`id` and `state`), removes the container via `wslc remove --force`,
+which **permanently deletes it and any data inside it that isn't in a
+mounted volume**. There is no undo and this provider does not take
+backups.
+
+## Example Usage
+
+{{tffile "examples/resources/wslc_container/resource.tf"}}
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+Import uses the container's full ID as the import identity:
+
+{{codefile "shell" .ImportFile}}
+
+`wslc inspect` reliably reports back `name`, `image`, and `state`, so
+import populates those. Every other configurable attribute (`env`,
+`cpus`, `dns`, `ports`, `labels`, etc.) cannot be read back from
+wslc.exe and is left unset by import -- write matching values into your
+configuration before the next `terraform plan`, or that plan will
+propose replacing the container (since those attributes all force
+replacement when they differ from state).
+
+### Example
+
+Assuming you created a container as follows
+
+{{codefile "shell" "examples/resources/wslc_container/import-create.sh" }}
+
+you provide the definition for the resource as follows
+
+{{tffile "examples/resources/wslc_container/import-resource.tf" }}
+
+then the import command is as follows
+
+{{codefile "shell" "examples/resources/wslc_container/import-resource.sh" }}

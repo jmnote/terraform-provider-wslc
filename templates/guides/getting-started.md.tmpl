@@ -1,0 +1,50 @@
+---
+page_title: "Getting Started with the wslc Provider"
+subcategory: ""
+description: |-
+  A first walkthrough: run a container with Terraform.
+---
+
+# Getting Started with the wslc Provider
+
+This walks through running a single container with Terraform.
+
+## 1. Configure the provider
+
+{{tffile "examples/provider/provider.tf"}}
+
+## 2. Declare a container
+
+{{tffile "examples/resources/wslc_container/resource.tf"}}
+
+`image` follows the same reference syntax as `wslc create <image>` (e.g.
+`"nginx:latest"`). `pull` controls whether it's fetched: `"missing"` (the
+default) only pulls if not already present locally, `"always"`
+re-checks the registry every time, `"never"` fails instead of pulling.
+
+## 3. Apply
+
+```shell
+terraform init
+terraform apply
+```
+
+This runs `wslc create` followed by `wslc start`.
+
+## 4. See what you created
+
+`terraform apply` itself only reports create/change/destroy counts, not a
+resource's attribute values. To see those -- e.g. the container's
+assigned ID -- declare an output:
+
+{{tffile "examples/resources/wslc_container/output.tf"}}
+
+`terraform apply` then prints it under `Outputs:`, and `terraform output
+nginx` reprints it any time afterward without another apply.
+
+## Next steps
+
+- Full attribute reference: [`wslc_container`](../resources/container.md).
+- `terraform destroy`, or changing almost any attribute, permanently
+  removes the container; see the resource documentation's
+  destructive-delete note before you apply.

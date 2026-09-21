@@ -1,0 +1,51 @@
+# Line ending policy for cross-platform development on a Windows box.
+#
+# The repository canonically stores LF. Git normalizes text files to LF in
+# the repository regardless of each contributor's local core.autocrlf
+# setting, which removes an entire class of "whole file changed" diffs and
+# CRLF/LF mixed-line-ending diagnostics from gofmt/go vet/golangci-lint.
+#
+# This makes every contributor's local `core.autocrlf` irrelevant for files
+# covered below, so keep this file authoritative instead of relying on
+# per-developer git config.
+* text=auto eol=lf
+
+# Go
+*.go     text eol=lf
+go.mod   text eol=lf
+go.sum   text eol=lf
+
+# Terraform / HCL
+*.tf     text eol=lf
+*.tfvars text eol=lf
+
+# Docs / config
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.json   text eol=lf
+*.toml   text eol=lf
+.editorconfig text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# POSIX shell scripts must stay LF even when checked out on Windows.
+*.sh     text eol=lf
+
+# Windows scripts conventionally use CRLF.
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# Binaries: never touch line endings, never diff as text.
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.exe    binary
+*.tar    binary
+*.tar.gz binary
+*.gz     binary
+*.zip    binary
+*.vhdx   binary
